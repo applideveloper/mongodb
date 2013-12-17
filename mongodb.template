@@ -19,17 +19,22 @@
     },
     "PrimaryMongoIpAddress" : {
       "Description": "Ip Address for Primary MongoDB Server",
-      "Default"    : "10.0.1.10",
+      "Default"    : "10.0.1.11",
       "Type"       : "String"
     },
     "SecondaryMongoIpAddress" : {
       "Description": "Ip Address for Secondary MongoDB Server",
-      "Default"    : "10.0.2.10",
+      "Default"    : "10.0.2.11",
       "Type"       : "String"
     },
-    "ArbiterMongoIpAddress" : {
+    "PrimaryArbiterMongoIpAddress" : {
       "Description": "Ip Address for Arbiter MongoDB Server",
-      "Default"    : "10.0.0.10",
+      "Default"    : "10.0.1.10",
+      "Type"       : "String"
+    },
+    "SecondaryArbiterMongoIpAddress" : {
+      "Description": "Ip Address for Arbiter MongoDB Server",
+      "Default"    : "10.0.2.10",
       "Type"       : "String"
     },
     "replSet" : {
@@ -152,11 +157,11 @@
     },
     "PrivateRoute" : {
       "Type" : "AWS::EC2::Route",
-      "DependsOn" : "ArbiterMongoDB",
+      "DependsOn" : "NATInstance",
       "Properties" : {
         "RouteTableId" : { "Ref" : "PrivateRouteTable" },
         "DestinationCidrBlock" : "0.0.0.0/0",
-        "InstanceId" : { "Ref" : "ArbiterMongoDB" }
+        "InstanceId" : { "Ref" : "NATInstance" }
       }
     },
     "PrimarySubnet": {
@@ -227,17 +232,16 @@
     "BastionEIP" : {
       "Type" : "AWS::EC2::EIP",  
       "Properties" : {
-        "InstanceId": { "Ref" : "ArbiterMongoDB" }
+        "InstanceId": { "Ref" : "NATInstance" }
       }
     },
-    "ArbiterMongoDB" : {
+    "NATInstance" : {
       "DependsOn" : "PublicSubnet", 
-      "Type" : "AWS::EC2::Instance",  
+      "Type" : "AWS::EC2::Instance",
       "Properties" : {
         "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxNatAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
         "InstanceType" : { "Ref" : "InstanceType"},
         "SubnetId" : { "Ref" : "PublicSubnet" },
-        "PrivateIpAddress" : {"Ref": "ArbiterMongoIpAddress"},
         "SecurityGroupIds" : [
           {"Ref" : "SSHSecurityGroup"},
           {"Ref" : "NatSecurityGroup"},
@@ -246,7 +250,7 @@
         "SourceDestCheck" : false,
         "KeyName" : { "Ref" : "KeyName" },
         "Tags" : [
-          {"Key" : "Name", "Value" : "ArbiterMongoDB" }
+          {"Key" : "Name", "Value" : "NATInstance" }
         ],
         "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
           "#! /bin/bash -v\n",
@@ -255,16 +259,96 @@
           "# Helper function\n",
           "function error_exit\n",
           "{\n",
-          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "ArbiterMongoDBWaitHandle" }, "'\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "NATInstanceWaitHandle" }, "'\n",
           "  exit 1\n",
           "}\n",
 
           "# Install packages\n",
-          "/opt/aws/bin/cfn-init -v -s ", { "Ref" : "AWS::StackId" }, " -r ArbiterMongoDB ",
+          "/opt/aws/bin/cfn-init -v -s ", { "Ref" : "AWS::StackId" }, " -r NATInstance ",
           "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
           
           "# All is well so signal success\n",
-          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "ArbiterMongoDBWaitHandle" }, "'\n"
+          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "NATInstanceWaitHandle" }, "'\n"
+        ]]}}
+      },
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "default" : [ "setup-repos" , "config" ]
+          }, 
+          "setup-repos" :{
+            "files" : {
+              "/etc/yum.repos.d/mongodb.repo" : {
+                "content" : { "Fn::Join" : ["", [
+                      "[mongodb]\n",
+                      "name=MongoDB Repository\n",
+                      "baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/\n",
+                      "gpgcheck=0\n",
+                      "enabled=1\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            }
+          }, 
+          "config" : {
+            "packages" : {
+              "yum" : {
+                 "mongo-10gen" : []
+              }
+            }
+          }
+        }
+      }
+    },       
+    "NATInstanceWaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle",
+      "Properties" : {}
+    },
+    "NATInstanceWaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "NATInstance",
+      "Properties" : {
+        "Handle" : {"Ref" : "NATInstanceWaitHandle"},
+        "Timeout" : "900"
+      }
+    },
+    "PrimaryArbiterMongoDB" : {
+      "DependsOn" : "NATInstanceWaitCondition", 
+      "Type" : "AWS::EC2::Instance",  
+      "Properties" : {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
+        "InstanceType" : { "Ref" : "InstanceType"},
+        "SubnetId" : { "Ref" : "PrimarySubnet" },
+        "PrivateIpAddress" : {"Ref": "PrimaryArbiterMongoIpAddress"},
+        "SecurityGroupIds" : [
+          {"Ref" : "SSHSecurityGroup"},
+          {"Ref" : "NatSecurityGroup"},
+          {"Ref" : "MongoDBSecurityGroup"}
+        ],
+        "SourceDestCheck" : false,
+        "KeyName" : { "Ref" : "KeyName" },
+        "Tags" : [
+          {"Key" : "Name", "Value" : "PrimaryArbiterMongoDB" }
+        ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#! /bin/bash -v\n",
+          "yum -y update\n",
+          
+          "# Helper function\n",
+          "function error_exit\n",
+          "{\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "PrimaryArbiterMongoDBWaitHandle" }, "'\n",
+          "  exit 1\n",
+          "}\n",
+
+          "# Install packages\n",
+          "/opt/aws/bin/cfn-init -v -s ", { "Ref" : "AWS::StackId" }, " -r PrimaryArbiterMongoDB ",
+          "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
+          
+          "# All is well so signal success\n",
+          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "PrimaryArbiterMongoDBWaitHandle" }, "'\n"
         ]]}}
       },
       "Metadata" : {
@@ -298,7 +382,7 @@
             "commands" : {
               "addRplSet" : {
                  "command" : { "Fn::Join" : ["", [
-                   "echo \"", { "Ref" : "replSet" } ,"\" > /etc/mongod.conf"
+                   "echo \"replSet = ", { "Ref" : "replSet" } ,"\" >> /etc/mongod.conf"
 	             ]]}
               }
             }, 
@@ -311,20 +395,20 @@
         }
       }
     },
-    "ArbiterMongoDBWaitHandle" : {
+    "PrimaryArbiterMongoDBWaitHandle" : {
       "Type" : "AWS::CloudFormation::WaitConditionHandle",
       "Properties" : {}
     },
-    "ArbiterMongoDBWaitCondition" : {
+    "PrimaryArbiterMongoDBWaitCondition" : {
       "Type" : "AWS::CloudFormation::WaitCondition",
-      "DependsOn" : "ArbiterMongoDB",
+      "DependsOn" : "PrimaryArbiterMongoDB",
       "Properties" : {
-        "Handle" : {"Ref" : "ArbiterMongoDBWaitHandle"},
-        "Timeout" : "600"
+        "Handle" : {"Ref" : "PrimaryArbiterMongoDBWaitHandle"},
+        "Timeout" : "900"
       }
     },
     "PrimaryMongoDB" : {
-      "DependsOn" : "ArbiterMongoDBWaitCondition", 
+      "DependsOn" : "NATInstanceWaitCondition", 
       "Type" : "AWS::EC2::Instance",  
       "Properties" : {
         "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
@@ -390,7 +474,7 @@
             "commands" : {
               "addRplSet" : {
                  "command" : { "Fn::Join" : ["", [
-                   "echo \"", { "Ref" : "replSet" } ,"\" > /etc/mongod.conf"
+                   "echo \"replSet = ", { "Ref" : "replSet" } ,"\" >> /etc/mongod.conf"
 	             ]]}
               }
             }, 
@@ -412,11 +496,104 @@
       "DependsOn" : "PrimaryMongoDB",
       "Properties" : {
         "Handle" : {"Ref" : "PrimaryMongoDBWaitHandle"},
-        "Timeout" : "600"
+        "Timeout" : "900"
       }
     },
+    "SecondaryArbiterMongoDB" : {
+      "DependsOn" : "NATInstanceWaitCondition", 
+      "Type" : "AWS::EC2::Instance",  
+      "Properties" : {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
+        "InstanceType" : { "Ref" : "InstanceType"},
+        "SubnetId" : { "Ref" : "SecondarySubnet" },
+        "PrivateIpAddress" : {"Ref": "SecondaryArbiterMongoIpAddress"},
+        "SecurityGroupIds" : [
+          {"Ref" : "SSHSecurityGroup"},
+          {"Ref" : "NatSecurityGroup"},
+          {"Ref" : "MongoDBSecurityGroup"}
+        ],
+        "SourceDestCheck" : false,
+        "KeyName" : { "Ref" : "KeyName" },
+        "Tags" : [
+          {"Key" : "Name", "Value" : "SecondaryArbiterMongoDB" }
+        ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#! /bin/bash -v\n",
+          "yum -y update\n",
+          
+          "# Helper function\n",
+          "function error_exit\n",
+          "{\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "SecondaryArbiterMongoDBWaitHandle" }, "'\n",
+          "  exit 1\n",
+          "}\n",
+
+          "# Install packages\n",
+          "/opt/aws/bin/cfn-init -v -s ", { "Ref" : "AWS::StackId" }, " -r SecondaryArbiterMongoDB ",
+          "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
+          
+          "# All is well so signal success\n",
+          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "SecondaryArbiterMongoDBWaitHandle" }, "'\n"
+        ]]}}
+      },
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "default" : [ "setuprepos" , "config" ]
+          }, 
+          "setuprepos" :{
+            "files" : {
+              "/etc/yum.repos.d/mongodb.repo" : {
+                "content" : { "Fn::Join" : ["", [
+                      "[mongodb]\n",
+                      "name=MongoDB Repository\n",
+                      "baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/\n",
+                      "gpgcheck=0\n",
+                      "enabled=1\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            }
+          }, 
+          "config" : {
+            "packages" : {
+              "yum" : {
+                 "mongo-10gen" : [],
+                 "mongo-10gen-server" : [] 
+              }
+            },
+            "commands" : {
+              "addRplSet" : {
+                 "command" : { "Fn::Join" : ["", [
+                   "echo \"replSet = ", { "Ref" : "replSet" } ,"\" >> /etc/mongod.conf"
+	             ]]}
+              }
+            }, 
+            "services" : {
+              "sysvinit" : {
+                "mongod" : {"enabled" : "true", "ensureRunning" : "true"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "SecondaryArbiterMongoDBWaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle",
+      "Properties" : {}
+    },
+    "SecondaryArbiterMongoDBWaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "SecondaryArbiterMongoDB",
+      "Properties" : {
+        "Handle" : {"Ref" : "SecondaryArbiterMongoDBWaitHandle"},
+        "Timeout" : "900"
+      }
+    },    
     "SecondaryMongoDB" : {
-      "DependsOn" : "ArbiterMongoDBWaitCondition", 
+      "DependsOn" : "NATInstanceWaitCondition", 
       "Type" : "AWS::EC2::Instance",  
       "Properties" : {
         "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
@@ -482,7 +659,7 @@
             "commands" : {
               "addRplSet" : {
                  "command" : { "Fn::Join" : ["", [
-                   "echo \"", { "Ref" : "replSet" } ,"\" > /etc/mongod.conf"
+                   "echo \"replSet = ", { "Ref" : "replSet" } ,"\" >> /etc/mongod.conf"
 	             ]]}
               }
             }, 
@@ -504,14 +681,14 @@
       "DependsOn" : "SecondaryMongoDB",
       "Properties" : {
         "Handle" : {"Ref" : "SecondaryMongoDBWaitHandle"},
-        "Timeout" : "600"
+        "Timeout" : "900"
       }
     }    
   },
   "Outputs": {
     "BastionIP": {
-      "Description": "IP Adress of the Bastion server / the Arbiter node",
-      "Value":  { "Fn::GetAtt": ["JenkinsServer", "PublicIp"]} }
+      "Description": "IP Adress of the Bastion server",
+      "Value":  { "Fn::GetAtt": ["NATInstance", "PublicIp"]}
     }
   }
 }
