@@ -327,7 +327,6 @@
           {"Ref" : "NatSecurityGroup"},
           {"Ref" : "MongoDBSecurityGroup"}
         ],
-        "SourceDestCheck" : false,
         "KeyName" : { "Ref" : "KeyName" },
         "Tags" : [
           {"Key" : "Name", "Value" : "PrimaryArbiterMongoDB" }
@@ -512,7 +511,6 @@
           {"Ref" : "NatSecurityGroup"},
           {"Ref" : "MongoDBSecurityGroup"}
         ],
-        "SourceDestCheck" : false,
         "KeyName" : { "Ref" : "KeyName" },
         "Tags" : [
           {"Key" : "Name", "Value" : "SecondaryArbiterMongoDB" }
