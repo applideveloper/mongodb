@@ -1,0 +1,494 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  "Description" : "MongoDB Server.",
+  "Parameters" : {
+    "VpcId" : {
+      "Type" : "String",
+      "Description" : "VpcId of your existing Virtual Private Cloud (VPC)"
+,"Default" : "vpc-01757e63"
+    },
+    "VPCCIDR" : {
+      "Type" : "String",
+      "Description" : "CIDR of your existing Virtual Private Cloud (VPC)"
+,"Default" : "10.0.0.0/16"
+    }, 
+    "PrimarySubnetId" : {
+      "Type" : "String",
+      "Description" : "SubnetId in your Virtual Private Cloud (VPC) for Primary Mongo nodes"
+,"Default" : "subnet-b4d7fdc0"
+    },
+    "SecondarySubnetId" : {
+      "Type" : "String",
+      "Description" : "SubnetId in your Virtual Private Cloud (VPC) for Secondary Mongo nodes"
+,"Default" : "subnet-8fc590c9"
+    },
+    "NatSecurityGroupId" : {
+      "Type" : "String",
+      "Description" : "Security Group id for internet access using NAT instance"
+,"Default" : "sg-74dace16"
+    }, 
+    "KeyName": {
+      "Description": "Key Name",
+      "Type"       : "String"
+,"Default"    : "dev-key"
+    },
+    "InstanceType" : {
+      "Description": "EC2 instance type for MongoDB Server",
+      "Default"    : "t1.micro",
+      "Type"       : "String"
+    },
+    "ArbiterInstanceType" : {
+      "Description": "EC2 instance type for MongoDB Arbiter Server",
+      "Default"    : "t1.micro",
+      "Type"       : "String"
+    },
+    "PrimaryMongoIpAddress" : {
+      "Description": "Ip Address for Primary MongoDB Server",
+      "Type"       : "String"
+,"Default"    : "10.0.1.11"
+    },
+    "SecondaryMongoIpAddress" : {
+      "Description": "Ip Address for Secondary MongoDB Server",
+      "Type"       : "String"
+,"Default"    : "10.0.2.11"
+    },
+    "PrimaryArbiterMongoIpAddress" : {
+      "Description": "Ip Address for Arbiter MongoDB Server",
+      "Type"       : "String"
+,"Default"    : "10.0.1.10"
+    },
+    "SecondaryArbiterMongoIpAddress" : {
+      "Description": "Ip Address for Arbiter MongoDB Server",
+      "Type"       : "String"
+,"Default"    : "10.0.2.10"
+    },
+    "replSet" : {
+      "Description": "MongoDB ReplicaSet name",
+      "Default"    : "rs0",
+      "Type"       : "String"
+    }
+  },
+  "Mappings" : {
+    "AWSAmazonLinuxAMI": {
+      "us-east-1":      { "name":"Virginia",   "201303": "ami-3275ee5b", "201309": "ami-35792c5c" },
+      "us-west-2":      { "name":"Oregon",     "201303": "ami-ecbe2adc", "201309": "ami-d03ea1e0" },
+      "us-west-1":      { "name":"California", "201303": "ami-66d1fc23", "201309": "ami-687b4f2d" },
+      "eu-west-1":      { "name":"Ireland",    "201303": "ami-44939930", "201309": "ami-149f7863" },
+      "ap-southeast-1": { "name":"Singapole",  "201303": "ami-aa9ed2f8", "201309": "ami-14f2b946" },
+      "ap-southeast-2": { "name":"Sydney",     "201303": "ami-363eaf0c", "201309": "ami-a148d59b" },
+      "ap-northeast-1": { "name":"Tokyo",      "201303": "ami-173fbf16", "201309": "ami-3561fe34" },
+      "sa-east-1":      { "name":"SaoPaulo",   "201303": "ami-dd6bb0c0", "201309": "ami-9f6ec982" }
+    },
+    "AWSAmazonLinuxNatAMI" : {
+      "us-east-1":      { "name":"Virginia",   "201303": "ami-4f9fee26", "201309": "ami-ad227cc4" },
+      "us-west-2":      { "name":"Oregon",     "201303": "ami-6d29b85d", "201309": "ami-f032acc0" },
+      "us-west-1":      { "name":"California", "201303": "ami-7850793d", "201309": "ami-d69aad93" },
+      "eu-west-1":      { "name":"Ireland",    "201303": "ami-ed352799", "201309": "ami-f3e30084" },
+      "ap-southeast-1": { "name":"Singapole",  "201303": "ami-780a432a", "201309": "ami-f22772a0" },
+      "ap-southeast-2": { "name":"Sydney",     "201303": "ami-0154c73b", "201309": "ami-3bae3201" },
+      "ap-northeast-1": { "name":"Tokyo",      "201303": "ami-5f840e5e", "201309": "ami-cd43d9cc" },
+      "sa-east-1":      { "name":"SaoPaulo",   "201303": "ami-7660c56b", "201309": "ami-d78325ca" }
+    }, 
+    "AZ" : {
+      "us-east-1" :      { "primary" : "us-east-1d",      "secondary" : "us-east-1a" },
+      "us-west-2" :      { "primary" : "us-west-2a",      "secondary" : "us-west-2b" },
+      "us-west-1" :      { "primary" : "us-west-1a",      "secondary" : "us-west-1b" },
+      "eu-west-1" :      { "primary" : "eu-west-1a",      "secondary" : "eu-west-1b" },
+      "ap-southeast-1" : { "primary" : "ap-southeast-1a", "secondary" : "ap-southeast-1b" },
+      "ap-southeast-2" : { "primary" : "ap-southeast-2a", "secondary" : "ap-southeast-2b" },
+      "ap-northeast-1" : { "primary" : "ap-northeast-1a", "secondary" : "ap-northeast-1c" },
+      "sa-east-1" :      { "primary" : "sa-east-1a",      "secondary" : "sa-east-1b" }
+    }
+  },
+  "Resources" : {
+    "SSHSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VpcId" },
+        "GroupDescription" : "Enable SSH access via port 22",
+        "SecurityGroupIngress" : [
+          { "IpProtocol" : "tcp", "FromPort" : "22",  "ToPort" : "22",  "CidrIp" : "0.0.0.0/0" }
+        ]
+      }
+    },
+    "MongoDBSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VpcId" },
+        "GroupDescription" : "Enable MongoDB access(default port)",
+        "SecurityGroupIngress" : [
+          { "IpProtocol" : "tcp", "FromPort" : "27017",  "ToPort" : "27017",  "CidrIp" : { "Ref" : "VPCCIDR"} }
+        ]
+      }
+    },
+    "PrimaryArbiterMongoDB" : {
+      "Type" : "AWS::EC2::Instance",  
+      "Properties" : {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
+        "InstanceType" : { "Ref" : "InstanceType"},
+        "SubnetId" : { "Ref" : "PrimarySubnetId" },
+        "PrivateIpAddress" : {"Ref": "PrimaryArbiterMongoIpAddress"},
+        "SecurityGroupIds" : [
+          {"Ref" : "SSHSecurityGroup"},
+          {"Ref" : "NatSecurityGroupId"},
+          {"Ref" : "MongoDBSecurityGroup"}
+        ],
+        "KeyName" : { "Ref" : "KeyName" },
+        "Tags" : [
+          {"Key" : "Name", "Value" : "PrimaryArbiterMongoDB" }
+        ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#! /bin/bash -v\n",
+          "yum -y update\n",
+          
+          "# Helper function\n",
+          "function error_exit\n",
+          "{\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "PrimaryArbiterMongoDBWaitHandle" }, "'\n",
+          "  exit 1\n",
+          "}\n",
+
+          "# Install packages\n",
+          "/opt/aws/bin/cfn-init -v -s ", { "Ref" : "AWS::StackId" }, " -r PrimaryArbiterMongoDB ",
+          "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
+          
+          "# All is well so signal success\n",
+          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "PrimaryArbiterMongoDBWaitHandle" }, "'\n"
+        ]]}}
+      },
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "default" : [ "setuprepos" , "config" ]
+          }, 
+          "setuprepos" :{
+            "files" : {
+              "/etc/yum.repos.d/mongodb.repo" : {
+                "content" : { "Fn::Join" : ["", [
+                      "[mongodb]\n",
+                      "name=MongoDB Repository\n",
+                      "baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/\n",
+                      "gpgcheck=0\n",
+                      "enabled=1\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            }
+          }, 
+          "config" : {
+            "packages" : {
+              "yum" : {
+                 "mongo-10gen" : [],
+                 "mongo-10gen-server" : [] 
+              }
+            },
+            "commands" : {
+              "addRplSet" : {
+                 "command" : { "Fn::Join" : ["", [
+                   "echo \"replSet = ", { "Ref" : "replSet" } ,"\" >> /etc/mongod.conf"
+	             ]]}
+              }
+            }, 
+            "services" : {
+              "sysvinit" : {
+                "mongod" : {"enabled" : "true", "ensureRunning" : "true"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "PrimaryArbiterMongoDBWaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle",
+      "Properties" : {}
+    },
+    "PrimaryArbiterMongoDBWaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "PrimaryArbiterMongoDB",
+      "Properties" : {
+        "Handle" : {"Ref" : "PrimaryArbiterMongoDBWaitHandle"},
+        "Timeout" : "900"
+      }
+    },
+    "PrimaryMongoDB" : {
+      "Type" : "AWS::EC2::Instance",  
+      "Properties" : {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
+        "InstanceType" : { "Ref" : "InstanceType"},
+        "SubnetId" : { "Ref" : "PrimarySubnetId" },
+        "PrivateIpAddress" : {"Ref": "PrimaryMongoIpAddress"},
+        "SecurityGroupIds" : [
+          {"Ref" : "SSHSecurityGroup"},
+          {"Ref" : "NatSecurityGroupId"},
+          {"Ref" : "MongoDBSecurityGroup"}
+        ],
+        "KeyName" : { "Ref" : "KeyName" },
+        "Tags" : [
+          {"Key" : "Name", "Value" : "PrimaryMongoDB" }
+        ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#! /bin/bash -v\n",
+          "yum -y update\n",
+          
+          "# Helper function\n",
+          "function error_exit\n",
+          "{\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "PrimaryMongoDBWaitHandle" }, "'\n",
+          "  exit 1\n",
+          "}\n",
+
+          "# Install packages\n",
+          "/opt/aws/bin/cfn-init -v -s ", { "Ref" : "AWS::StackId" }, " -r PrimaryMongoDB ",
+          "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
+          
+          "# All is well so signal success\n",
+          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "PrimaryMongoDBWaitHandle" }, "'\n"
+        ]]}}
+      },
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "default" : [ "setup-repos" , "config" ]
+          }, 
+          "setup-repos" :{
+            "files" : {
+              "/etc/yum.repos.d/mongodb.repo" : {
+                "content" : { "Fn::Join" : ["", [
+                      "[mongodb]\n",
+                      "name=MongoDB Repository\n",
+                      "baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/\n",
+                      "gpgcheck=0\n",
+                      "enabled=1\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            }
+          }, 
+          "config" : {
+            "packages" : {
+              "yum" : {
+                 "mongo-10gen" : [],
+                 "mongo-10gen-server" : [] 
+              }
+            },
+            "commands" : {
+              "addRplSet" : {
+                 "command" : { "Fn::Join" : ["", [
+                   "echo \"replSet = ", { "Ref" : "replSet" } ,"\" >> /etc/mongod.conf"
+	             ]]}
+              }
+            }, 
+            "services" : {
+              "sysvinit" : {
+                "mongod" : {"enabled" : "true", "ensureRunning" : "true"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "PrimaryMongoDBWaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle",
+      "Properties" : {}
+    },
+    "PrimaryMongoDBWaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "PrimaryMongoDB",
+      "Properties" : {
+        "Handle" : {"Ref" : "PrimaryMongoDBWaitHandle"},
+        "Timeout" : "900"
+      }
+    },
+    "SecondaryArbiterMongoDB" : {
+      "Type" : "AWS::EC2::Instance",  
+      "Properties" : {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
+        "InstanceType" : { "Ref" : "InstanceType"},
+        "SubnetId" : { "Ref" : "SecondarySubnetId" },
+        "PrivateIpAddress" : {"Ref": "SecondaryArbiterMongoIpAddress"},
+        "SecurityGroupIds" : [
+          {"Ref" : "SSHSecurityGroup"},
+          {"Ref" : "NatSecurityGroupId"},
+          {"Ref" : "MongoDBSecurityGroup"}
+        ],
+        "KeyName" : { "Ref" : "KeyName" },
+        "Tags" : [
+          {"Key" : "Name", "Value" : "SecondaryArbiterMongoDB" }
+        ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#! /bin/bash -v\n",
+          "yum -y update\n",
+          
+          "# Helper function\n",
+          "function error_exit\n",
+          "{\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "SecondaryArbiterMongoDBWaitHandle" }, "'\n",
+          "  exit 1\n",
+          "}\n",
+
+          "# Install packages\n",
+          "/opt/aws/bin/cfn-init -v -s ", { "Ref" : "AWS::StackId" }, " -r SecondaryArbiterMongoDB ",
+          "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
+          
+          "# All is well so signal success\n",
+          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "SecondaryArbiterMongoDBWaitHandle" }, "'\n"
+        ]]}}
+      },
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "default" : [ "setuprepos" , "config" ]
+          }, 
+          "setuprepos" :{
+            "files" : {
+              "/etc/yum.repos.d/mongodb.repo" : {
+                "content" : { "Fn::Join" : ["", [
+                      "[mongodb]\n",
+                      "name=MongoDB Repository\n",
+                      "baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/\n",
+                      "gpgcheck=0\n",
+                      "enabled=1\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            }
+          }, 
+          "config" : {
+            "packages" : {
+              "yum" : {
+                 "mongo-10gen" : [],
+                 "mongo-10gen-server" : [] 
+              }
+            },
+            "commands" : {
+              "addRplSet" : {
+                 "command" : { "Fn::Join" : ["", [
+                   "echo \"replSet = ", { "Ref" : "replSet" } ,"\" >> /etc/mongod.conf"
+	             ]]}
+              }
+            }, 
+            "services" : {
+              "sysvinit" : {
+                "mongod" : {"enabled" : "true", "ensureRunning" : "true"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "SecondaryArbiterMongoDBWaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle",
+      "Properties" : {}
+    },
+    "SecondaryArbiterMongoDBWaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "SecondaryArbiterMongoDB",
+      "Properties" : {
+        "Handle" : {"Ref" : "SecondaryArbiterMongoDBWaitHandle"},
+        "Timeout" : "900"
+      }
+    },    
+    "SecondaryMongoDB" : {
+      "Type" : "AWS::EC2::Instance",  
+      "Properties" : {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSAmazonLinuxAMI", { "Ref" : "AWS::Region" }, "201309" ]},  
+        "InstanceType" : { "Ref" : "InstanceType"},
+        "SubnetId" : { "Ref" : "SecondarySubnetId" },
+        "PrivateIpAddress" : {"Ref": "SecondaryMongoIpAddress"},
+        "SecurityGroupIds" : [
+          {"Ref" : "SSHSecurityGroup"},
+          {"Ref" : "NatSecurityGroupId"},
+          {"Ref" : "MongoDBSecurityGroup"}
+        ],
+        "KeyName" : { "Ref" : "KeyName" },
+        "Tags" : [
+          {"Key" : "Name", "Value" : "SecondaryMongoDB" }
+        ],
+        "UserData" : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#! /bin/bash -v\n",
+          "yum -y update\n",
+          
+          "# Helper function\n",
+          "function error_exit\n",
+          "{\n",
+          "  /opt/aws/bin/cfn-signal -e 1 -r \"$1\" '", { "Ref" : "SecondaryMongoDBWaitHandle" }, "'\n",
+          "  exit 1\n",
+          "}\n",
+
+          "# Install packages\n",
+          "/opt/aws/bin/cfn-init -v -s ", { "Ref" : "AWS::StackId" }, " -r SecondaryMongoDB ",
+          "    --region ", { "Ref" : "AWS::Region" }, " || error_exit 'Failed to run cfn-init'\n",
+          
+          "# All is well so signal success\n",
+          "/opt/aws/bin/cfn-signal -e $? -r \"EC2Server setup complete\" '", { "Ref" : "SecondaryMongoDBWaitHandle" }, "'\n"
+        ]]}}
+      },
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "configSets" : {
+            "default" : [ "setup-repos" , "config" ]
+          }, 
+          "setup-repos" :{
+            "files" : {
+              "/etc/yum.repos.d/mongodb.repo" : {
+                "content" : { "Fn::Join" : ["", [
+                      "[mongodb]\n",
+                      "name=MongoDB Repository\n",
+                      "baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/\n",
+                      "gpgcheck=0\n",
+                      "enabled=1\n"
+                ]]},
+                "mode"  : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            }
+          }, 
+          "config" : {
+            "packages" : {
+              "yum" : {
+                 "mongo-10gen" : [],
+                 "mongo-10gen-server" : [] 
+              }
+            },
+            "commands" : {
+              "addRplSet" : {
+                 "command" : { "Fn::Join" : ["", [
+                   "echo \"replSet = ", { "Ref" : "replSet" } ,"\" >> /etc/mongod.conf"
+	             ]]}
+              }
+            }, 
+            "services" : {
+              "sysvinit" : {
+                "mongod" : {"enabled" : "true", "ensureRunning" : "true"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "SecondaryMongoDBWaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle",
+      "Properties" : {}
+    },
+    "SecondaryMongoDBWaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "SecondaryMongoDB",
+      "Properties" : {
+        "Handle" : {"Ref" : "SecondaryMongoDBWaitHandle"},
+        "Timeout" : "900"
+      }
+    }    
+  },
+  "Outputs": {
+  }
+}
+
+
+
