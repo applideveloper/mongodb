@@ -5,32 +5,26 @@
     "VpcId" : {
       "Type" : "String",
       "Description" : "VpcId of your existing Virtual Private Cloud (VPC)"
-,"Default" : "vpc-01757e63"
     },
     "VPCCIDR" : {
       "Type" : "String",
       "Description" : "CIDR of your existing Virtual Private Cloud (VPC)"
-,"Default" : "10.0.0.0/16"
     }, 
     "PrimarySubnetId" : {
       "Type" : "String",
       "Description" : "SubnetId in your Virtual Private Cloud (VPC) for Primary Mongo nodes"
-,"Default" : "subnet-b4d7fdc0"
     },
     "SecondarySubnetId" : {
       "Type" : "String",
       "Description" : "SubnetId in your Virtual Private Cloud (VPC) for Secondary Mongo nodes"
-,"Default" : "subnet-8fc590c9"
     },
     "NatSecurityGroupId" : {
       "Type" : "String",
       "Description" : "Security Group id for internet access using NAT instance"
-,"Default" : "sg-74dace16"
     }, 
     "KeyName": {
       "Description": "Key Name",
       "Type"       : "String"
-,"Default"    : "dev-key"
     },
     "InstanceType" : {
       "Description": "EC2 instance type for MongoDB Server",
@@ -45,22 +39,18 @@
     "PrimaryMongoIpAddress" : {
       "Description": "Ip Address for Primary MongoDB Server",
       "Type"       : "String"
-,"Default"    : "10.0.1.11"
     },
     "SecondaryMongoIpAddress" : {
       "Description": "Ip Address for Secondary MongoDB Server",
       "Type"       : "String"
-,"Default"    : "10.0.2.11"
     },
     "PrimaryArbiterMongoIpAddress" : {
       "Description": "Ip Address for Arbiter MongoDB Server",
       "Type"       : "String"
-,"Default"    : "10.0.1.10"
     },
     "SecondaryArbiterMongoIpAddress" : {
       "Description": "Ip Address for Arbiter MongoDB Server",
       "Type"       : "String"
-,"Default"    : "10.0.2.10"
     },
     "replSet" : {
       "Description": "MongoDB ReplicaSet name",
